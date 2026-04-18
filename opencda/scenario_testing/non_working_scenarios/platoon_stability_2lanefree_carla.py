@@ -1,32 +1,22 @@
 """
-Archived scenario testing: merging vehicle joining a platoon in the customized
-2-lane freeway simplified map solely with CARLA.
-
-This module is kept for future reference and potential restoration, but it is
-currently considered non-working and is not part of the supported scenario
-runtime.
+Scenario testing: merging vehicle joining a platoon in the customized 2-lane
+freeway simplified map sorely with carla
 """
 
-import os
 import sys
-from typing import Any
+import os
 
 import carla
 
 import opencda.scenario_testing.utils.sim_api as sim_api
 from opencda.core.common.misc import get_speed
 from opencda.scenario_testing.evaluations.evaluate_manager import EvaluationManager
-from opencda.scenario_testing.utils.yaml_utils import YamlDict, add_current_time
+from opencda.scenario_testing.utils.yaml_utils import add_current_time
 
 
-def run_scenario(opt: Any, scenario_params: YamlDict) -> None:
-    eval_manager: EvaluationManager | None = None
-    scenario_manager: sim_api.ScenarioManager | None = None
-    platoon_list: list[Any] = []
-    bg_veh_list: list[Any] = []
-
+def run_scenario(opt, scenario_params):
     try:
-        scenario_params, _ = add_current_time(scenario_params)
+        scenario_params = add_current_time(scenario_params)
         current_path = os.path.dirname(os.path.realpath(__file__))
         xodr_path = os.path.join(current_path, "../assets/2lane_freeway_simplified/2lane_freeway_simplified.xodr")
 
@@ -37,7 +27,7 @@ def run_scenario(opt: Any, scenario_params: YamlDict) -> None:
             scenario_manager.client.start_recorder("single_town06_carla.log", True)
 
         # create platoon members
-        platoon_list, _ = scenario_manager.create_platoon_manager()
+        platoon_list = scenario_manager.create_platoon_manager()
 
         # create traffic flow if any
         _, bg_veh_list = scenario_manager.create_traffic_carla()
@@ -48,9 +38,7 @@ def run_scenario(opt: Any, scenario_params: YamlDict) -> None:
         spectator = scenario_manager.world.get_spectator()
         spectator_vehicle = platoon_list[0].vehicle_manager_list[0].vehicle
 
-        cav_world = scenario_manager.cav_world
-        assert cav_world is not None
-        eval_manager = EvaluationManager(cav_world, script_name="platon_stability", current_time=scenario_params["current_time"])
+        eval_manager = EvaluationManager(scenario_manager.cav_world, script_name="platon_stability", current_time=scenario_params["current_time"])
         # adjusting leader speed
         leader_speed_profile = scenario_params["platoon_base"]["leader_speeds_profile"]
         stage_duration = scenario_params["platoon_base"]["stage_duration"]
@@ -131,14 +119,12 @@ def run_scenario(opt: Any, scenario_params: YamlDict) -> None:
                         test_platoon_manager.origin_leader_target_speed = leader_speed_profile[0]
 
     finally:
-        if eval_manager is not None:
-            eval_manager.evaluate()
+        eval_manager.evaluate()
 
-        if scenario_manager is not None and opt.record:
+        if opt.record:
             scenario_manager.client.stop_recorder()
 
-        if scenario_manager is not None:
-            scenario_manager.close()
+        scenario_manager.close()
 
         for platoon in platoon_list:
             platoon.destroy()

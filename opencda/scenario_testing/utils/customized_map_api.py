@@ -1,7 +1,5 @@
 """Loading world from customized map"""
 
-from __future__ import annotations
-
 import os
 import sys
 
@@ -9,12 +7,12 @@ import carla
 
 
 class bcolors:
-    WARNING: str = "\033[93m"
-    FAIL: str = "\033[91m"
-    ENDC: str = "\033[0m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
 
 
-def load_customized_world(xodr_path: str, client: carla.Client) -> carla.World | None:
+def load_customized_world(xodr_path, client):
     """
     Load .xodr file and return the carla world object
 
@@ -55,7 +53,7 @@ def load_customized_world(xodr_path: str, client: carla.Client) -> carla.World |
         return None
 
 
-def spawn_helper_2lanefree(carla_version: str, coefficient: float) -> carla.Transform:
+def spawn_helper_2lanefree(carla_version, coefficient):
     """
     A helper function to locate the valid spawn point on the merge lane.
 

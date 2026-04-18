@@ -45,7 +45,7 @@ jobs:
             opencda/core/common/communication/messages/opencda.proto \
             opencda/core/common/communication/messages/entity.proto
       - name: Run mypy
-        run: mypy . --follow-imports=silent
+        run: mypy .
 
   unused-code-check:
     runs-on: ubuntu-latest
@@ -59,16 +59,7 @@ jobs:
       - name: Install Dependencies
         run: pip install deadcode
       - name: Run deadcode
-        run: |
-          python - <<'PY'
-          import sys
-          from deadcode.cli import main
-
-          result = main(['.'])
-          if result is not None:
-              print(result)
-              sys.exit(1)
-          PY
+        run: deadcode .
 
   pre-commit:
     runs-on: ubuntu-latest

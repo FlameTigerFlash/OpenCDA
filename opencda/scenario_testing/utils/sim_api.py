@@ -4,18 +4,13 @@ is used for carla simulation only, and if you want to manage the Co-simulation,
 please use cosim_api.py.
 """
 
-from __future__ import annotations
-
 import math
 import random
 import logging
 import sys
 import json
 
-from collections.abc import Callable, Mapping
 from random import shuffle
-from typing import Any, TypeAlias, cast
-
 from omegaconf import OmegaConf
 from omegaconf.listconfig import ListConfig
 
@@ -30,12 +25,8 @@ from opencda.scenario_testing.utils.customized_map_api import load_customized_wo
 
 logger = logging.getLogger("cavise.opencda.opencda.scenario_testing.utils.sim_api")
 
-ConfigDict: TypeAlias = dict[str, Any]
-BlueprintMeta: TypeAlias = Mapping[str, Mapping[str, Any]]
-MapHelper: TypeAlias = Callable[..., carla.Transform]
 
-
-def car_blueprint_filter(blueprint_library: Any, carla_version: str = "0.9.15") -> list[Any]:
+def car_blueprint_filter(blueprint_library, carla_version="0.9.15"):
     """
     Exclude the uncommon vehicles from the default CARLA blueprint library
     (i.e., isetta, carlacola, cybertruck, t2).
@@ -88,7 +79,7 @@ def car_blueprint_filter(blueprint_library: Any, carla_version: str = "0.9.15") 
     return blueprints
 
 
-def multi_class_vehicle_blueprint_filter(label: str, blueprint_library: Any, bp_meta: BlueprintMeta) -> list[Any]:
+def multi_class_vehicle_blueprint_filter(label, blueprint_library, bp_meta):
     """
     Get a list of blueprints that have the class equals the specified label.
 
@@ -154,23 +145,12 @@ class ScenarioManager:
 
     """
 
-    def __init__(
-        self,
-        scenario_params: ConfigDict,
-        apply_ml: bool,
-        carla_version: str,
-        xodr_path: str | None = None,
-        town: str | None = None,
-        cav_world: CavWorld | None = None,
-        carla_host: str = "carla",
-        carla_timeout: float = 30.0,
-    ) -> None:
+    def __init__(self, scenario_params, apply_ml, carla_version, xodr_path=None, town=None, cav_world=None, carla_host="carla", carla_timeout=30.0):
         self.scenario_params = scenario_params
         self.carla_version = carla_version
-        self.bp_meta: dict[str, dict[str, Any]] = {}
-        self.bp_class_sample_prob: dict[str, float] = {}
+        self.world = None
 
-        simulation_config = cast(ConfigDict, scenario_params["world"])
+        simulation_config = scenario_params["world"]
 
         # set random seed if stated
         if "seed" in simulation_config:
@@ -180,25 +160,22 @@ class ScenarioManager:
         self.client = carla.Client(carla_host, simulation_config["client_port"])
         self.client.set_timeout(carla_timeout)
 
-        world: carla.World | None
         if xodr_path:
-            world = load_customized_world(xodr_path, self.client)
+            self.world = load_customized_world(xodr_path, self.client)
         elif town:
             try:
-                world = self.client.load_world(town)
+                self.world = self.client.load_world(town)
             except RuntimeError as error:
                 logger.error(
                     f"{bcolors.FAIL}{town} probably is not in your CARLA repo! Please download all town maps to your CARLA repo!{bcolors.ENDC}"
                 )
                 logger.error(error)
-                world = None
         else:
-            world = self.client.get_world()
+            self.world = self.client.get_world()
 
-        if world is None:
+        if not self.world:
             sys.exit("- World loading failed")
 
-        self.world = world
         self.origin_settings = self.world.get_settings()
         new_settings = self.world.get_settings()
 
@@ -219,7 +196,7 @@ class ScenarioManager:
         if self.use_multi_class_bp:
             # bbx/blueprint meta
             with open(scenario_params["blueprint"]["bp_meta_path"]) as f:
-                self.bp_meta = cast(dict[str, dict[str, Any]], json.load(f))
+                self.bp_meta = json.load(f)
             self.bp_class_sample_prob = scenario_params["blueprint"]["bp_class_sample_prob"]
 
             # normalize probability
@@ -230,7 +207,7 @@ class ScenarioManager:
         self.apply_ml = apply_ml
 
     @staticmethod
-    def set_weather(weather_settings: Mapping[str, float]) -> carla.WeatherParameters:
+    def set_weather(weather_settings):
         """
         Set CARLA weather params.
 
@@ -256,7 +233,7 @@ class ScenarioManager:
         )
         return weather
 
-    def spawn_custom_actor(self, spawn_transform: carla.Transform, config: Mapping[str, Any], fallback_model: str) -> carla.Actor:
+    def spawn_custom_actor(self, spawn_transform, config, fallback_model):
         model = config.get("model", fallback_model)
         cav_vehicle_bp = self.world.get_blueprint_library().find(model)
 
@@ -270,18 +247,12 @@ class ScenarioManager:
         return self.world.spawn_actor(cav_vehicle_bp, spawn_transform)
 
     # TODO: make a custom_actor_manager for inanimated objects
-    def create_custom_actor_manager(
-        self,
-        application: list[str],
-        map_helper: MapHelper | None = None,
-        data_dump: bool = False,
-        fallback_model: str = "vehicle.lincoln.mkz_2017",
-    ) -> tuple[list[Any], dict[int, Any]] | None:
+    def create_custom_actor_manager(self, application, map_helper=None, data_dump=False, fallback_model: str = "vehicle.lincoln.mkz_2017"):
         if self.scenario_params.get("scenario") is None or self.scenario_params["scenario"].get("custom_actor_list", None) is None:
             logger.info("No custom actor was created")
             return [], {}
         for i, config in enumerate(self.scenario_params["scenario"].get("custom_actor_list", {})):
-            actor_config = cast(ConfigDict, OmegaConf.create(config))
+            actor_config = OmegaConf.create(config)
             # if the spawn position is a single scalar, we need to use map
             # helper to transfer to spawn transform
             if "spawn_special" not in actor_config:
@@ -292,19 +263,11 @@ class ScenarioManager:
                     ),
                 )
             else:
-                spawn_transform = cast(MapHelper, map_helper)(self.carla_version, *actor_config["spawn_special"])
+                spawn_transform = map_helper(self.carla_version, *actor_config["spawn_special"])
 
             self.spawn_custom_actor(spawn_transform, actor_config, fallback_model)
 
-        return None
-
-    def create_vehicle_manager(
-        self,
-        application: list[str],
-        map_helper: MapHelper | None = None,
-        data_dump: bool = False,
-        fallback_model: str = "vehicle.lincoln.mkz_2017",
-    ) -> tuple[list[VehicleManager], dict[int, Any]]:
+    def create_vehicle_manager(self, application, map_helper=None, data_dump=False, fallback_model: str = "vehicle.lincoln.mkz_2017"):
         """
         Create a list of single CAVs.
 
@@ -328,8 +291,8 @@ class ScenarioManager:
         single_cav_list : list
             A list contains all single CAVs' vehicle manager.
         """
-        single_cav_list: list[VehicleManager] = []
-        cav_carla_list: dict[int, Any] = {}
+        single_cav_list = []
+        cav_carla_list = {}
 
         if self.scenario_params.get("scenario") is None or self.scenario_params["scenario"].get("single_cav_list", None) is None:
             logger.info("No CAV was created")
@@ -338,8 +301,8 @@ class ScenarioManager:
         for i, cav_config in enumerate(self.scenario_params["scenario"]["single_cav_list"]):
             # in case the cav wants to join a platoon later
             # it will be empty dictionary for single cav application
-            platoon_base = cast(ConfigDict, OmegaConf.create({"platoon": self.scenario_params.get("platoon_base", {})}))
-            cav_config = cast(ConfigDict, OmegaConf.merge(self.scenario_params["vehicle_base"], platoon_base, cav_config))
+            platoon_base = OmegaConf.create({"platoon": self.scenario_params.get("platoon_base", {})})
+            cav_config = OmegaConf.merge(self.scenario_params["vehicle_base"], platoon_base, cav_config)
             # if the spawn position is a single scalar, we need to use map
             # helper to transfer to spawn transform
             if "spawn_special" not in cav_config:
@@ -348,7 +311,7 @@ class ScenarioManager:
                     carla.Rotation(pitch=cav_config["spawn_position"][5], yaw=cav_config["spawn_position"][4], roll=cav_config["spawn_position"][3]),
                 )
             else:
-                spawn_transform = cast(MapHelper, map_helper)(self.carla_version, *cav_config["spawn_special"])
+                spawn_transform = map_helper(self.carla_version, *cav_config["spawn_special"])
 
             vehicle = self.spawn_custom_actor(spawn_transform, cav_config, fallback_model)
 
@@ -379,12 +342,7 @@ class ScenarioManager:
 
         return single_cav_list, cav_carla_list
 
-    def create_platoon_manager(
-        self,
-        map_helper: MapHelper | None = None,
-        data_dump: bool = False,
-        fallback_model: str = "vehicle.lincoln.mkz_2017",
-    ) -> tuple[list[PlatooningManager], dict[int, Any]]:
+    def create_platoon_manager(self, map_helper=None, data_dump: bool = False, fallback_model: str = "vehicle.lincoln.mkz_2017"):
         """
         Create a list of platoons.
 
@@ -405,8 +363,8 @@ class ScenarioManager:
         single_cav_list : list
             A list contains all single CAVs' vehicle manager.
         """
-        platoon_list: list[PlatooningManager] = []
-        platoon_carla_ids: dict[int, Any] = {}
+        platoon_list = []
+        platoon_carla_ids = {}
 
         self.cav_world = CavWorld(self.apply_ml)
 
@@ -416,12 +374,12 @@ class ScenarioManager:
 
         # create platoons
         for i, platoon in enumerate(self.scenario_params["scenario"]["platoon_list"]):
-            platoon = cast(ConfigDict, OmegaConf.merge(self.scenario_params["platoon_base"], platoon))
+            platoon = OmegaConf.merge(self.scenario_params["platoon_base"], platoon)
             platoon_manager = PlatooningManager(platoon, self.cav_world)
 
             for j, cav_config in enumerate(platoon["members"]):
-                platoon_base = cast(ConfigDict, OmegaConf.create({"platoon": platoon}))
-                cav_config = cast(ConfigDict, OmegaConf.merge(self.scenario_params["vehicle_base"], platoon_base, cav_config))
+                platoon_base = OmegaConf.create({"platoon": platoon})
+                cav_config = OmegaConf.merge(self.scenario_params["vehicle_base"], platoon_base, cav_config)
                 if "spawn_special" not in cav_config:
                     spawn_transform = carla.Transform(
                         carla.Location(x=cav_config["spawn_position"][0], y=cav_config["spawn_position"][1], z=cav_config["spawn_position"][2]),
@@ -430,7 +388,7 @@ class ScenarioManager:
                         ),
                     )
                 else:
-                    spawn_transform = cast(MapHelper, map_helper)(self.carla_version, *cav_config["spawn_special"])
+                    spawn_transform = map_helper(self.carla_version, *cav_config["spawn_special"])
 
                 vehicle = self.spawn_custom_actor(spawn_transform, cav_config, fallback_model)
 
@@ -463,7 +421,7 @@ class ScenarioManager:
 
         return platoon_list, platoon_carla_ids
 
-    def create_rsu_manager(self, data_dump: bool) -> tuple[list[RSUManager], dict[int, Any]]:
+    def create_rsu_manager(self, data_dump):
         """
         Create a list of RSU.
 
@@ -477,15 +435,15 @@ class ScenarioManager:
         rsu_list : list
             A list contains all rsu managers..
         """
-        rsu_list: list[RSUManager] = []
-        rsu_carla_ids: dict[int, Any] = {}
+        rsu_list = []
+        rsu_carla_ids = {}
 
         if self.scenario_params.get("scenario") is None or self.scenario_params["scenario"].get("rsu_list", None) is None:
             logger.info("No RSU was created")
             return rsu_list, rsu_carla_ids
 
         for rsu_config in self.scenario_params["scenario"]["rsu_list"]:
-            rsu_config = cast(ConfigDict, OmegaConf.merge(self.scenario_params["rsu_base"], rsu_config))
+            rsu_config = OmegaConf.merge(self.scenario_params["rsu_base"], rsu_config)
             default_model = "static.prop.gnome"
             static_bp = self.world.get_blueprint_library().find(default_model)
 
@@ -496,14 +454,7 @@ class ScenarioManager:
 
             actor = self.world.spawn_actor(static_bp, spawn_transform)
 
-            rsu_manager = RSUManager(
-                self.world,
-                rsu_config,
-                self.carla_map,
-                self.cav_world,
-                self.scenario_params["current_time"],
-                data_dumping=data_dump,
-            )
+            rsu_manager = RSUManager(self.world, rsu_config, self.carla_map, self.cav_world, self.scenario_params["current_time"], data_dump)
 
             rsu_carla_ids[actor.id] = rsu_manager.rid
 
@@ -512,7 +463,7 @@ class ScenarioManager:
 
         return rsu_list, rsu_carla_ids
 
-    def spawn_vehicles_by_list(self, tm: carla.TrafficManager, traffic_config: ConfigDict, bg_list: list[carla.Actor]) -> list[carla.Actor]:
+    def spawn_vehicles_by_list(self, tm, traffic_config, bg_list):
         """
         Spawn the traffic vehicles by the given list.
 
@@ -546,7 +497,6 @@ class ScenarioManager:
         ego_vehicle_bp = blueprint_library.find(default_model)
 
         for i, vehicle_config in enumerate(traffic_config["vehicle_list"]):
-            vehicle_config = cast(ConfigDict, vehicle_config)
             spawn_transform = carla.Transform(
                 carla.Location(x=vehicle_config["spawn_position"][0], y=vehicle_config["spawn_position"][1], z=vehicle_config["spawn_position"][2]),
                 carla.Rotation(
@@ -580,7 +530,7 @@ class ScenarioManager:
 
         return bg_list
 
-    def spawn_vehicle_by_range(self, tm: carla.TrafficManager, traffic_config: ConfigDict, bg_list: list[carla.Actor]) -> list[carla.Actor]:
+    def spawn_vehicle_by_range(self, tm, traffic_config, bg_list):
         """
         Spawn the traffic vehicles by the given range.
 
@@ -613,12 +563,11 @@ class ScenarioManager:
         ego_vehicle_bp = blueprint_library.find(default_model)
 
         spawn_ranges = traffic_config["range"]
-        spawn_set: set[tuple[float, float, float, float, float, float]] = set()
+        spawn_set = set()
         spawn_num = 0
 
         for spawn_range in spawn_ranges:
-            spawn_range = cast(list[Any], spawn_range)
-            spawn_num += cast(int, spawn_range[6])
+            spawn_num += spawn_range[6]
             x_min, x_max, y_min, y_max = math.floor(spawn_range[0]), math.ceil(spawn_range[1]), math.floor(spawn_range[2]), math.ceil(spawn_range[3])
 
             for x in range(x_min, x_max, int(spawn_range[4])):
@@ -693,7 +642,7 @@ class ScenarioManager:
 
         return bg_list
 
-    def create_traffic_carla(self) -> tuple[carla.TrafficManager | None, list[carla.Actor]]:
+    def create_traffic_carla(self):
         """
         Create traffic flow.
 
@@ -705,13 +654,13 @@ class ScenarioManager:
         bg_list : list
             The list that contains all the background traffic vehicles.
         """
-        bg_list: list[carla.Actor] = []
+        bg_list = []
 
         if self.scenario_params.get("carla_traffic_manager") is None:
             logger.info("No Carla traffic flow was created")
             return None, bg_list
 
-        traffic_config = cast(ConfigDict, self.scenario_params["carla_traffic_manager"])
+        traffic_config = self.scenario_params["carla_traffic_manager"]
         tm = self.client.get_trafficmanager()
 
         tm.set_global_distance_to_leading_vehicle(traffic_config["global_distance"])
@@ -730,18 +679,18 @@ class ScenarioManager:
             logger.info("CARLA traffic flow generated")
         return tm, bg_list
 
-    def tick(self) -> None:
+    def tick(self):
         """
         Tick the server.
         """
         self.world.tick()
 
-    def sumo_tick(self) -> None:
+    def sumo_tick(self):
         return None
 
     # TODO: Use this function instead of destroy in scenario.py
     # NOTE: This function crashes Carla
-    def destroyActors(self) -> None:  # noqa: DC04
+    def destroyActors(self):  # noqa: DC04
         """
         Destroy all actors in the world.
         """
@@ -750,7 +699,7 @@ class ScenarioManager:
         for actor in actor_list:
             actor.destroy()
 
-    def close(self) -> None:
+    def close(self):
         """
         Simulation close.
         """
