@@ -46,6 +46,12 @@ vehicle_base:
       trajectory_dt: 0.20 # for every dt seconds, we sample a trajectory point from the trajectory path as next goal state
       debug: false # whether to draw future/history waypoints
       debug_trajectory: false # whether to draw the trajectory points and path
+    metrics:
+      metric_configs:
+        speed:
+          warmup_steps: 100
+        crossing_time:
+          warmup_steps: 100
 
 
 

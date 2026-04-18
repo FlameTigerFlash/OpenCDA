@@ -35,8 +35,9 @@ class EvaluationManager(object):
 
     """
 
-    def __init__(self, cav_world, script_name, current_time):
+    def __init__(self, cav_world, script_name, current_time, aim_model_manager = None):
         self.cav_world = cav_world
+        self.aim_model_manager = aim_model_manager
 
         current_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -57,19 +58,36 @@ class EvaluationManager(object):
         platooning_reports = self.platooning_eval()
         logger.info("Platooning Evaluation Done")
 
+        aim_reports = None
+        if self.aim_model_manager is not None:
+            aim_reports = self.aim_eval()
+            logger.info("AIM Evaluation Done")
+
         json_save_path = os.path.join(self.eval_save_path, "report.json")
         with open(json_save_path, "w", encoding="utf-8") as output_file:
-            json.dump(
-                {
+            data = {
                     "planning": planning_report.to_dict(),
                     "localization": localization_report.to_dict(),
                     "platooning": [report.to_dict() for report in platooning_reports],
-                },
+                }
+            if aim_reports is not None:
+                data["AIM"] = aim_reports.to_dict()
+            json.dump(
+                data,
                 output_file,
                 indent=2,
             )
 
         logger.info("Evaluation JSON report saved to: %s", json_save_path)
+
+    def aim_eval(self) -> ModuleReport:
+        report_builder = UniversalReportBuilder()
+        aim_reports: list[EntityReport] = []
+
+        raw_data = self.aim_model_manager.metrics_collector.get_raw()
+        aim_reports.append(report_builder.build_entity_report(raw_data))
+
+        return report_builder.build_module_report("AIM", aim_reports)
 
     def kinematics_eval(self) -> ModuleReport:
         """

@@ -136,12 +136,13 @@ class BehaviorAgent(object):
         default_metric_configs = {
             "speed": {"warmup_steps": 100},
             "acceleration": {"warmup_steps": 100},
-            "ttc": {"warmup_steps": 100},
+            "ttc": {"warmup_steps": 100}
         }
         metric_configs = resolve_metric_collector_config(
             config_yaml,
             default_metric_configs=default_metric_configs,
         )
+
         self.metrics_collector = MetricCollector(
             module="planning",
             entity_id=self.vehicle.id,
@@ -178,7 +179,7 @@ class BehaviorAgent(object):
         obstacle_vehicles = objects["vehicles"]
         self.obstacle_vehicles = self.white_list_match(obstacle_vehicles)
 
-        self.metrics_collector.update({"ego_speed": ego_speed, "ttc": self.ttc})
+        self.metrics_collector.update({"ego_speed": ego_speed, "ttc": self.ttc, "at_intersection": self.is_intersection(self.objects, self.get_local_planner().get_waypoint_buffer())})
 
         if self.ignore_traffic_light:
             self.light_state = "Green"
@@ -755,7 +756,7 @@ class BehaviorAgent(object):
         # retrieve ego location
         ego_vehicle_loc = self._ego_pos.location
         ego_vehicle_wp = self._map.get_waypoint(ego_vehicle_loc)
-        waipoint_buffer = self.get_local_planner().get_waypoint_buffer()
+        waypoint_buffer = self.get_local_planner().get_waypoint_buffer()
         # ttc reset to 1000 at the beginning
         self.ttc = 1000
         # when overtake_counter > 0, another overtake/lane change is forbidden
@@ -767,7 +768,7 @@ class BehaviorAgent(object):
             self.destination_push_flag -= 1
 
         # use traffic light to detect intersection
-        is_intersection = self.is_intersection(self.objects, waipoint_buffer)
+        is_intersection = self.is_intersection(self.objects, waypoint_buffer)
 
         # 0. Simulation ends condition
         if self.is_close_to_destination():

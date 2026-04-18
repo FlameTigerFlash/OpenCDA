@@ -167,8 +167,9 @@ class Scenario:
         self.scenario_manager.create_custom_actor_manager(application=["single"], map_helper=map_api.spawn_helper_2lanefree, data_dump=data_dump)
         logger.info("created single custom actors")
 
+
         self.eval_manager = EvaluationManager(
-            self.scenario_manager.cav_world, script_name=self.scenario_name, current_time=scenario_params["current_time"]
+            self.scenario_manager.cav_world, script_name=self.scenario_name, current_time=scenario_params["current_time"], aim_model_manager=self.codriving_model_manager if hasattr(self, "codriving_model_manager") else None
         )
 
         self.spectator = self.scenario_manager.world.get_spectator()
@@ -211,6 +212,7 @@ class Scenario:
 
             if opt.with_aim:
                 self.codriving_model_manager.make_trajs(carla_vmanagers=self.single_cav_list)
+                self.codriving_model_manager.collect_metrics()
 
             if self.coperception_model_manager is not None and tick_number > 0:
                 memory_structure = None
