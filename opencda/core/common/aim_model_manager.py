@@ -1,3 +1,6 @@
+import time
+from typing import Any
+
 import carla
 import traci
 import torch
@@ -8,6 +11,9 @@ from scipy.spatial import distance
 
 from opencda.co_simulation.sumo_integration.bridge_helper import BridgeHelper
 from AIM import AIMModel
+
+from opencda.metrics_tools.config import resolve_metric_collector_config
+from opencda.metrics_tools.metric_collector import MetricCollector
 
 
 logger = logging.getLogger("cavise.opencda.opencda.core.common.aim_model_manager")
@@ -31,11 +37,14 @@ class AIMModelManager:
 
         self.cav_ids = set()
         self.carla_vmanagers = set()
+        self.cav_sizes = dict()
 
         self.trajs = dict()
 
         self.nodes = nodes
         self.node_coords = np.array([node.getCoord() for node in nodes])
+        self.node_sizes = np.array([self.calculate_intersection_size(node) for node in nodes])
+        self.nodes_free_space = {self.nodes[i] : self.node_sizes[i] for i in range(len(self.nodes))}
         self.excluded_nodes = excluded_nodes  # Intersections where the MTP module is disabled
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -43,6 +52,21 @@ class AIMModelManager:
 
         self.yaw_dict = self._load_yaw()
         self.yaw_id = {}
+
+        default_metric_configs = {
+            "free_space": {"warmup_steps": 20}
+        }
+        metric_configs = resolve_metric_collector_config(
+            module_config=None,
+            default_metric_configs=default_metric_configs,
+        )
+        metrics_collector = MetricCollector(
+            module="AIM",
+            entity_id="AIM MODEL MANAGER",
+            metric_configs=metric_configs,
+        )
+
+        self.metrics_collector = metrics_collector
 
     def _load_yaw(self):
         """
@@ -75,6 +99,10 @@ class AIMModelManager:
                 return vmanager
         return None
 
+    def collect_metrics(self):
+        for node in self.nodes:
+            self.metrics_collector.update({"free_space": self.nodes_free_space[node]})
+
     def make_trajs(self, carla_vmanagers):
         """
         Creates new trajectories based on model predictions, assigns CAVs new destinations.
@@ -85,6 +113,9 @@ class AIMModelManager:
         # List of cars from CARLA
         self.carla_vmanagers = carla_vmanagers
         self.cav_ids = [vmanager.vid for vmanager in self.carla_vmanagers]
+
+        self.cav_sizes = {vmanager.vid: self.calculate_vehicle_area(vmanager) for vmanager in self.carla_vmanagers}
+        self.nodes_free_space = {self.nodes[i] : self.node_sizes[i] for i in range(len(self.nodes))}
 
         self.update_trajs()
 
@@ -114,6 +145,9 @@ class AIMModelManager:
             distance_to_center = np.linalg.norm(curr_pos - control_center)
 
             if distance_to_center < self.CONTROL_RADIUS:
+                if vehicle_id in self.cav_sizes:
+                    self.nodes_free_space[nearest_node] -= self.cav_sizes[vehicle_id]
+
                 self.mtp_controlled_vehicles.add(vehicle_id)
 
                 pred_delta = predictions[idx].reshape(30, 2).detach().cpu().numpy()
@@ -451,3 +485,31 @@ class AIMModelManager:
         else:
             raise NotImplementedError
         return intention_feature
+
+    @staticmethod
+    def calculate_intersection_size(node) -> float:
+        shape = node.getShape()
+        if not shape:
+            logging.warning(f"Intersection '{node}' has undefined shape.")
+            return 0.0
+
+        area = 0.0
+        n = len(shape)
+        for i in range(n):
+            x1, y1 = shape[i][:2]  # берём только x,y (если есть z)
+            x2, y2 = shape[(i + 1) % n][:2]
+            area += x1 * y2 - x2 * y1
+
+        area = abs(area) / 2.0
+        return area
+
+    @staticmethod
+    def calculate_vehicle_area(vmanager) -> float:
+        vehicle = vmanager.vehicle
+        bbox = vehicle.bounding_box
+
+        half_length = bbox.extent.x
+        half_width = bbox.extent.y
+
+        area = half_length * half_width * 4
+        return area

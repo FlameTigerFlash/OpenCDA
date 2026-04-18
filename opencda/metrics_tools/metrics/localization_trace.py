@@ -96,7 +96,7 @@ class LocalizationTraceMetric(BaseMetric):
             return ()
         return tuple(float(abs(a - b)) for a, b in zip(first_values, second_values))
 
-    @staticmethod  # noqa DC04
+    @staticmethod
     def _signed_difference(
         first_values: Sequence[float],
         second_values: Sequence[float],

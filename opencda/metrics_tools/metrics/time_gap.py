@@ -8,7 +8,7 @@ from opencda.metrics_tools.report_models import MetricReportSpec, MetricSummaryS
 from opencda.metrics_tools.metric_sample import MetricSample
 
 
-class TimeGapMetric(BaseMetric):  # noqa DC03
+class TimeGapMetric(BaseMetric):
     """Collect platooning time-gap samples."""
 
     metric_name = "time_gap"

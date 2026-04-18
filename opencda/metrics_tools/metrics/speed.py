@@ -8,7 +8,7 @@ from opencda.metrics_tools.metric_sample import MetricSample
 from opencda.metrics_tools.report_models import MetricReportSpec, MetricSummarySpec
 
 
-class SpeedMetric(BaseMetric):  # noqa DC03
+class SpeedMetric(BaseMetric):
     """Metric for ego speed."""
 
     metric_name = "speed"
@@ -17,7 +17,7 @@ class SpeedMetric(BaseMetric):  # noqa DC03
         super().__init__(warmup_steps=warmup_steps, sample_interval=dt)
         self._speed_samples: list[MetricSample] = []
 
-    @property  # noqa DC08
+    @property
     def speed_list(self) -> list[float]:
         return [sample.value for sample in self._speed_samples]
 

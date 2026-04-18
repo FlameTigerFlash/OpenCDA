@@ -135,11 +135,11 @@ vehicle_base:
     metrics:
       metric_configs:
         speed:
-          warmup_steps: 1
+          warmup_steps: 100
         acceleration:
-          warmup_steps: 1
+          warmup_steps: 100
         ttc:
-          warmup_steps: 1
+          warmup_steps: 100
 
   controller:
     type: pid_controller # this has to be exactly the same name as the controller py file
