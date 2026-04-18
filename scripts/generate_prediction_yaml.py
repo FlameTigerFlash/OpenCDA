@@ -4,19 +4,12 @@ for each vehicle
 
 import os
 import concurrent
-from typing import SupportsFloat, cast
 
 from concurrent.futures import ThreadPoolExecutor
 from opencda.scenario_testing.utils.yaml_utils import load_yaml, save_yaml
 
-Numeric = SupportsFloat | int | float
-TrajectoryPoint = tuple[float, float, float, float, float, float, float]
-VehicleState = dict[str, object]
-VehiclesMap = dict[int, VehicleState]
-ScenarioYaml = dict[str, VehiclesMap]
 
-
-def retrieve_future_params(yaml_params: list[ScenarioYaml], index: int, seconds: int = 8) -> list[ScenarioYaml]:
+def retrieve_future_params(yaml_params, index, seconds=8):
     """
     Retrieve the yaml parameters for the next n seconds.
 
@@ -44,7 +37,7 @@ def retrieve_future_params(yaml_params: list[ScenarioYaml], index: int, seconds:
     return future_params
 
 
-def retrieve_past_params(yaml_params: list[ScenarioYaml], index: int, seconds: int = 1) -> list[ScenarioYaml]:
+def retrieve_past_params(yaml_params, index, seconds=1):
     """
     Retrieve the yaml parameters for the past n seconds.
 
@@ -72,7 +65,7 @@ def retrieve_past_params(yaml_params: list[ScenarioYaml], index: int, seconds: i
     return past_params
 
 
-def extract_trajectories_by_id(object_id: int, yaml_param_list: list[ScenarioYaml]) -> list[TrajectoryPoint]:
+def extract_trajectories_by_id(object_id, yaml_param_list):
     """
     Extract a certain vehicle's future trajectory.
 
@@ -88,20 +81,20 @@ def extract_trajectories_by_id(object_id: int, yaml_param_list: list[ScenarioYam
     predictions : list
         The future trajectory of object_id.
     """
-    trajectories: list[TrajectoryPoint] = []
+    trajectories = []
 
     for yaml_param in yaml_param_list:
         vehicles = yaml_param["vehicles"]
 
-        if object_id not in vehicles:
+        if int(object_id) not in vehicles:
             break
 
-        target_vehicle = vehicles[object_id]
+        target_vehicle = vehicles[int(object_id)]
 
-        location = tuple(map(float, cast(list[Numeric], target_vehicle["location"])))
-        center = tuple(map(float, cast(list[Numeric], target_vehicle["center"])))
-        rotation = tuple(map(float, cast(list[Numeric], target_vehicle["angle"])))
-        speed = float(cast(float | int, target_vehicle["speed"]))
+        location = target_vehicle["location"]
+        center = target_vehicle["center"]
+        rotation = target_vehicle["angle"]
+        speed = target_vehicle["speed"]
 
         # we regard the center of the bbx as the vehicle true location
         trajectory = (location[0] + center[0], location[1] + center[1], location[2] + center[2], rotation[0], rotation[1], rotation[2], speed)
@@ -110,12 +103,7 @@ def extract_trajectories_by_id(object_id: int, yaml_param_list: list[ScenarioYam
     return trajectories
 
 
-def extract_trajectories_by_file(
-    yaml_params: list[ScenarioYaml],
-    cur_index: int,
-    past_seconds: int = 1,
-    future_seconds: int = 8,
-) -> ScenarioYaml:
+def extract_trajectories_by_file(yaml_params, cur_index, past_seconds=1, future_seconds=8):
     """
     Extract the predictions and observation of all vehicles
     at the current index.
@@ -144,16 +132,16 @@ def extract_trajectories_by_file(
     for vehicle_id, vehicle in cur_param["vehicles"].items():
         future_yaml_params = retrieve_future_params(yaml_params, cur_index, future_seconds)
         predictions = extract_trajectories_by_id(vehicle_id, future_yaml_params)
-        vehicle["predictions"] = predictions
+        cur_param["vehicles"][vehicle_id].update({"predictions": predictions})
 
         past_yaml_params = retrieve_past_params(yaml_params, cur_index, past_seconds)
         observations = extract_trajectories_by_id(vehicle_id, past_yaml_params)
-        vehicle["observations"] = observations
+        cur_param["vehicles"][vehicle_id].update({"observations": observations})
 
     return cur_param
 
 
-def generate_prediction_by_scenario(scenario: str, future_seconds: int = 8, past_seconds: int = 1) -> None:
+def generate_prediction_by_scenario(scenario, future_seconds=8, past_seconds=1):
     """
     Generate prediction and observation trajectories by scenario.
 
@@ -169,17 +157,17 @@ def generate_prediction_by_scenario(scenario: str, future_seconds: int = 8, past
         The scenario dictionary.
     """
     cavs = [os.path.join(scenario, x) for x in os.listdir(scenario) if not x.endswith(".yaml")]
-    for cav in cavs:
+    for j, cav in enumerate(cavs):
         yaml_files = sorted([os.path.join(cav, x) for x in os.listdir(cav) if x.endswith(".yaml")])
 
         # load all dictionarys at one time
-        yaml_params = [cast(ScenarioYaml, load_yaml(x)) for x in yaml_files]
+        yaml_params = [load_yaml(x) for x in yaml_files]
         for k in range(len(yaml_files)):
             new_param = extract_trajectories_by_file(yaml_params, k, past_seconds, future_seconds)
             save_yaml(new_param, yaml_files[k])
 
 
-def generate_prediction_yaml(root_dir: str, future_seconds: int = 8, past_seconds: int = 1) -> None:
+def generate_prediction_yaml(root_dir, future_seconds=8, past_seconds=1):
     """
     Overwrite the origin yaml files with the new yaml files that have
     Parameters

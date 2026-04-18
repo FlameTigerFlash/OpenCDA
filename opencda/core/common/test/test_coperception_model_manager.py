@@ -3,11 +3,10 @@ from collections import OrderedDict
 import pytest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
-import numpy as np
 
 # The production code imports are now safe because pytest_configure in conftest.py
 # installs the mocks before collection.
-from opencda.core.common.coperception_model_manager import CoperceptionModelManager, CoperceptionVisualizer, DirectoryProcessor
+from opencda.core.common.coperception_model_manager import CoperceptionModelManager, DirectoryProcessor
 
 
 class DummyOpt:
@@ -251,17 +250,14 @@ class TestCoperceptionModelManager:
         manager.opencood_dataset = MagicMock()
         manager_deps["inference_utils"].inference_late_fusion.return_value = ("p", "s", "g")
 
-        with patch.object(CoperceptionVisualizer, "render_inference_to_file") as mock_render:
-            manager.make_prediction(5)
+        manager.make_prediction(5)
 
         # Verify directories
         base_dir = tmp_path / "simulation_output/coperception"
         assert (base_dir / "vis_3d/scen1_2023_01_01").exists()
         assert (base_dir / "vis_bev/scen1_2023_01_01").exists()
 
-        assert mock_render.call_count == 2
-        assert mock_render.call_args_list[0].kwargs["method"] == "3d"
-        assert mock_render.call_args_list[1].kwargs["method"] == "bev"
+        assert manager_deps["simple_vis"].visualize.call_count == 2
 
     def test_make_prediction_show_sequence(self, manager_deps, fake_heavy_deps):
         """Test Open3D interactions without opening windows."""
@@ -275,12 +271,7 @@ class TestCoperceptionModelManager:
         # Ensure pred is not None
         manager_deps["inference_utils"].inference_late_fusion.return_value = ("box", "score", "gt")
 
-        with patch.object(
-            CoperceptionVisualizer,
-            "visualize_inference_sample_dataloader",
-            return_value=(MagicMock(name="pcd"), [MagicMock(name="pred_box")], [MagicMock(name="gt_box")]),
-        ) as mock_visualize:
-            manager.make_prediction(0)
+        manager.make_prediction(0)
 
         # Check Visualizer creation (mocked class in conftest)
         manager_deps["Visualizer"].assert_called()
@@ -289,7 +280,6 @@ class TestCoperceptionModelManager:
         vis_instance.create_window.assert_called()
         vis_instance.add_geometry.assert_called()  # i=0
         vis_instance.update_renderer.assert_called()
-        mock_visualize.assert_called_once()
 
         # Verify line set assignment was called
         manager_deps["vis_utils"].linset_assign_list.assert_called()
@@ -313,75 +303,6 @@ class TestCoperceptionModelManager:
         assert args[2] == opt.global_sort_detections
 
 
-class TestCoperceptionVisualizer:
-    def test_resolve_visualization_config_merges_defaults_and_overrides(self):
-        config = CoperceptionVisualizer.resolve_visualization_config(
-            {
-                "background": [12, 18, 24],
-                "lidar_point_colors": {
-                    "default": [200, 200, 200],
-                    "cav-2": [10, 20, 30],
-                },
-                "bbox_colors": {"pred": [1, 2, 3]},
-            }
-        )
-
-        assert config["background"] == [12, 18, 24]
-        assert config["lidar_point_colors"]["default"] == [200, 200, 200]
-        assert config["lidar_point_colors"]["ego"] == [80, 255, 80]
-        assert config["lidar_point_colors"]["cav-2"] == [10, 20, 30]
-        assert config["bbox_colors"]["pred"] == [1, 2, 3]
-        assert config["bbox_colors"]["gt"] == [0, 255, 0]
-
-    def test_get_lidar_points_and_colors_keeps_agent_order_and_applies_id_override(self):
-        config = CoperceptionVisualizer.resolve_visualization_config(
-            {
-                "lidar_point_colors": {
-                    "default": [200, 200, 200],
-                    "ego": [10, 250, 10],
-                    "cav-2": [90, 80, 70],
-                }
-            }
-        )
-        batch_data = {
-            "ego": {
-                "origin_lidar_by_agent": [
-                    np.array([[1.0, 0.0, 0.0, 1.0]]),
-                    np.array([[2.0, 0.0, 0.0, 1.0], [3.0, 0.0, 0.0, 1.0]]),
-                ],
-                "origin_lidar_roles": ["ego", "other"],
-                "origin_lidar_agent_ids": ["cav-1", "cav-2"],
-            }
-        }
-
-        points, colors = CoperceptionVisualizer._get_lidar_points_and_colors(batch_data, None, config)
-
-        assert points.tolist() == [[1.0, 0.0, 0.0, 1.0], [2.0, 0.0, 0.0, 1.0], [3.0, 0.0, 0.0, 1.0]]
-        assert colors.tolist() == [[10, 250, 10], [90, 80, 70], [90, 80, 70]]
-
-    def test_get_lidar_points_and_colors_prefers_agent_id_override_over_ego_role(self):
-        config = CoperceptionVisualizer.resolve_visualization_config(
-            {
-                "lidar_point_colors": {
-                    "default": [255, 255, 255],
-                    "ego": [80, 255, 80],
-                    "cav-1": [123, 45, 67],
-                }
-            }
-        )
-        batch_data = {
-            "ego": {
-                "origin_lidar_by_agent": [np.array([[1.0, 2.0, 3.0, 1.0]])],
-                "origin_lidar_roles": ["ego"],
-                "origin_lidar_agent_ids": ["cav-1"],
-            }
-        }
-
-        _, colors = CoperceptionVisualizer._get_lidar_points_and_colors(batch_data, None, config)
-
-        assert colors.tolist() == [[123, 45, 67]]
-
-
 # --- Tests for DirectoryProcessor ---
 
 
@@ -389,8 +310,12 @@ class TestDirectoryProcessor:
     @pytest.fixture
     def processor_setup(self, tmp_path):
         source_dir = tmp_path / "data_dumping"
+        # IMPORTANT: now_dir must NOT be inside source_dir, otherwise it becomes part of
+        # subdirectories and breaks the "subdirectories[-2]" selection logic.
+        now_dir = tmp_path / "now"
         source_dir.mkdir(parents=True)
-        return source_dir
+        now_dir.mkdir(parents=True)
+        return source_dir, now_dir
 
     def test_detect_cameras(self, tmp_path):
         dp = DirectoryProcessor()
@@ -408,9 +333,35 @@ class TestDirectoryProcessor:
         cameras = dp.detect_cameras(str(data_dir))
         assert cameras == ["_camera0.png", "_camera1.png", "_camera2.png"]
 
+    def test_process_directory_success(self, processor_setup):
+        source_dir, now_dir = processor_setup
+        dp = DirectoryProcessor(str(source_dir), str(now_dir))
+
+        # Needs at least 2 dirs. Sorted order: d1, d2.
+        # Code picks index -2 -> d1.
+        d1 = source_dir / "d1"
+        d2 = source_dir / "d2"
+        d1.mkdir()
+        d2.mkdir()
+
+        (d1 / "data_protocol.yaml").write_text("proto")
+        agent1 = d1 / "agent1"
+        agent1.mkdir()
+
+        # Files for tick 10
+        (agent1 / "000010.pcd").write_text("pcd")
+        (agent1 / "000010.yaml").write_text("yaml")
+
+        dp.process_directory(10)
+
+        assert (now_dir / "data_protocol.yaml").exists()
+        assert (now_dir / "data_protocol.yaml").read_text() == "proto"
+        assert (now_dir / "agent1" / "000010.pcd").exists()
+        assert (now_dir / "agent1" / "000010.pcd").read_text() == "pcd"
+
     def test_retrieve_data_structure_success(self, processor_setup):
-        source_dir = processor_setup
-        dp = DirectoryProcessor(str(source_dir))
+        source_dir, now_dir = processor_setup
+        dp = DirectoryProcessor(str(source_dir), str(now_dir))
 
         d1 = source_dir / "d1"
         d2 = source_dir / "d2"
@@ -451,16 +402,16 @@ class TestDirectoryProcessor:
         assert structure[0]["rsu_0"]["ego"] is False
 
     def test_retrieve_data_structure_returns_none_when_not_enough_snapshots(self, processor_setup):
-        source_dir = processor_setup
-        dp = DirectoryProcessor(str(source_dir))
+        source_dir, now_dir = processor_setup
+        dp = DirectoryProcessor(str(source_dir), str(now_dir))
 
         (source_dir / "d1").mkdir()
 
         assert dp.retrieve_data_structure(10) is None
 
     def test_retrieve_data_structure_returns_none_when_no_valid_agents(self, processor_setup):
-        source_dir = processor_setup
-        dp = DirectoryProcessor(str(source_dir))
+        source_dir, now_dir = processor_setup
+        dp = DirectoryProcessor(str(source_dir), str(now_dir))
 
         d1 = source_dir / "d1"
         d2 = source_dir / "d2"
@@ -474,8 +425,8 @@ class TestDirectoryProcessor:
         assert dp.retrieve_data_structure(10) is None
 
     def test_retrieve_data_structure_returns_none_when_expected_ego_is_incomplete(self, processor_setup):
-        source_dir = processor_setup
-        dp = DirectoryProcessor(str(source_dir))
+        source_dir, now_dir = processor_setup
+        dp = DirectoryProcessor(str(source_dir), str(now_dir))
 
         d1 = source_dir / "d1"
         d2 = source_dir / "d2"
@@ -497,8 +448,8 @@ class TestDirectoryProcessor:
         assert dp.retrieve_data_structure(10) is None
 
     def test_retrieve_data_structure_fallback_when_detect_cameras_fails(self, processor_setup, monkeypatch):
-        source_dir = processor_setup
-        dp = DirectoryProcessor(str(source_dir))
+        source_dir, now_dir = processor_setup
+        dp = DirectoryProcessor(str(source_dir), str(now_dir))
 
         d1 = source_dir / "d1"
         d2 = source_dir / "d2"
@@ -519,8 +470,8 @@ class TestDirectoryProcessor:
         assert structure[0]["cav_1"]["ego"] is True
 
     def test_retrieve_data_structure_respects_max_cav(self, processor_setup):
-        source_dir = processor_setup
-        dp = DirectoryProcessor(str(source_dir), max_cav=1)
+        source_dir, now_dir = processor_setup
+        dp = DirectoryProcessor(str(source_dir), str(now_dir), max_cav=1)
 
         d1 = source_dir / "d1"
         d2 = source_dir / "d2"
@@ -544,8 +495,8 @@ class TestDirectoryProcessor:
         assert structure[0]["cav_1"]["ego"] is True
 
     def test_retrieve_data_structure_respects_max_cav_after_rsu_reorder(self, processor_setup):
-        source_dir = processor_setup
-        dp = DirectoryProcessor(str(source_dir), max_cav=2)
+        source_dir, now_dir = processor_setup
+        dp = DirectoryProcessor(str(source_dir), str(now_dir), max_cav=2)
 
         d1 = source_dir / "d1"
         d2 = source_dir / "d2"
@@ -573,6 +524,16 @@ class TestDirectoryProcessor:
         assert "rsu_0" not in structure[0]
         assert structure[0]["veh_1"]["ego"] is True
         assert structure[0]["veh_2"]["ego"] is False
+
+    def test_clear_directory_now(self, processor_setup):
+        _, now_dir = processor_setup
+        dp = DirectoryProcessor(now_directory=str(now_dir))
+        (now_dir / "file.txt").touch()
+        (now_dir / "subdir").mkdir()
+
+        dp.clear_directory_now()
+
+        assert len(os.listdir(now_dir)) == 0
 
     def test_update_dataset_logs_warning_for_empty_memory_data_dict(self):
         """Empty dict as memory_data should be propagated and trigger empty-dataset warning."""

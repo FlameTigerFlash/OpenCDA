@@ -3,16 +3,9 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
-from os import PathLike
 
 
-def create_video(
-    input_dir: str | PathLike[str],
-    output_path: str | PathLike[str],
-    framerate: int = 20,
-    rotate: int = 0,
-    pattern: str = "*.png",
-) -> int:
+def create_video(input_dir, output_path, framerate=20, rotate=0, pattern="*.png"):
     """
     Creates a video from images.
 
@@ -23,18 +16,15 @@ def create_video(
     :param pattern: File pattern for image selection (e.g., *.png, *.jpg)
     """
     try:
-        input_dir_path = Path(input_dir)
-        output_file_path = Path(output_path)
-
-        if not os.path.isdir(input_dir_path):
+        if not os.path.isdir(input_dir):
             raise FileNotFoundError(f"Directory {input_dir} not found")
 
         # Creates tmp file if rotation needed
-        temp_file: Path | None = None
+        temp_file = None
         if rotate:
             temp_file = Path(tempfile.mktemp(suffix=".mp4"))
 
-        intermediate_path = temp_file if rotate else output_file_path
+        intermediate_path = temp_file if rotate else output_path
 
         cmd = [
             "ffmpeg",
@@ -44,7 +34,7 @@ def create_video(
             "-pattern_type",
             "glob",
             "-i",
-            str(input_dir_path / pattern),
+            str(Path(input_dir) / pattern),
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -64,24 +54,20 @@ def create_video(
                     rotate_str = "transpose=1"
                 case _:
                     print("Invalid rotate angle")
-                    return 1
+                    return -1
 
-            rotate_cmd = ["ffmpeg", "-y", "-i", str(intermediate_path), "-vf", rotate_str, "-c:a", "copy", str(output_file_path)]
+            rotate_cmd = ["ffmpeg", "-y", "-i", str(intermediate_path), "-vf", rotate_str, "-c:a", "copy", str(output_path)]
             subprocess.run(rotate_cmd, check=True, stderr=subprocess.PIPE)
-            if temp_file is not None:
-                os.remove(temp_file)
+            os.remove(intermediate_path)
 
-        print(f"Video successfully created: {output_file_path}")
-        return 0
+        print(f"Video successfully created: {output_path}")
 
     except subprocess.CalledProcessError as e:
         print("FFmpeg failed")
         print("Return code:", e.returncode)
         print("stderr:", e.stderr.decode(errors="replace") if e.stderr else None)
-        return 1
     except Exception as e:
         print(f"Error: {e}")
-        return 1
 
 
 if __name__ == "__main__":
@@ -93,4 +79,4 @@ if __name__ == "__main__":
     parser.add_argument("--pattern", default="*.png", help="Filename pattern for image sequence (glob format)")
 
     args = parser.parse_args()
-    raise SystemExit(create_video(**vars(args)))
+    create_video(**vars(args))

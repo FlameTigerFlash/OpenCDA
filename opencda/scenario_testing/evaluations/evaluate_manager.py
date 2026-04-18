@@ -6,7 +6,6 @@ import os
 import json
 import logging
 
-from opencda.core.common.cav_world import CavWorld
 from opencda.metrics_tools.report_models import EntityReport, GroupReport, ModuleReport
 from opencda.metrics_tools.report_builder import UniversalReportBuilder
 
@@ -46,7 +45,7 @@ class EvaluationManager(object):
         if not os.path.exists(self.eval_save_path):
             os.makedirs(self.eval_save_path)
 
-    def evaluate(self) -> None:
+    def evaluate(self):
         """
         Evaluate performance of all modules and persist structured outputs.
         """

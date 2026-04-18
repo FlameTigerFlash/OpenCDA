@@ -6,26 +6,21 @@ import os
 import sys
 import enum
 import errno
+import typing
 import pathlib
 import logging
 import argparse
 import omegaconf
 import subprocess
-from collections.abc import Callable, Collection
-from types import ModuleType
-from typing import cast
 
-from omegaconf import DictConfig
 from opencda.version import __version__
 
 
 try:
-    from rich.traceback import install as _rich_traceback_install
+    from rich.traceback import install as rich_traceback_install
 except ModuleNotFoundError:
-    rich_traceback_install: Callable[..., object] | None = None
+    rich_traceback_install = None
     print("Rich tracebacks are not available, all CLI configuration regarding tracebacks is ignored.")
-else:
-    rich_traceback_install = _rich_traceback_install
 
 
 try:
@@ -64,7 +59,7 @@ def create_logger(level: int, fmt: str = "- [%(asctime)s][%(name)s] %(message)s"
     return logger
 
 
-def install_traceback_handler(verbose: bool = True, suppress_modules: Collection[str] = ()) -> None:
+def install_traceback_handler(verbose: bool = True, suppress_modules: typing.Collection[str] = ()):
     default_filtered_modules = [
         "numpy",
         "scipy",
@@ -78,8 +73,7 @@ def install_traceback_handler(verbose: bool = True, suppress_modules: Collection
         "omegaconf",
     ]
 
-    joined_strings = set(default_filtered_modules) & set(suppress_modules)
-    joined: set[str | ModuleType] = set(joined_strings)
+    joined = set(default_filtered_modules) & set(suppress_modules)
     if rich_traceback_install is not None:
         rich_traceback_install(show_locals=verbose, suppress=joined)
 
@@ -203,7 +197,7 @@ def main() -> None:
 
     logger.info(f"OpenCDA Version: {__version__}")
 
-    cwd = pathlib.Path(os.getcwd())
+    cwd = pathlib.PurePath(os.getcwd())
     default_yaml = config_yaml = cwd / "opencda/scenario_testing/config_yaml/default.yaml"
     config_yaml = cwd / f"opencda/scenario_testing/config_yaml/{opt.test_scenario}.yaml"
     if not os.path.isfile(config_yaml):
@@ -218,7 +212,6 @@ def main() -> None:
     default_dict = omegaconf.OmegaConf.load(str(default_yaml))
     scene_dict = omegaconf.OmegaConf.load(str(config_yaml))
     scene_dict = omegaconf.OmegaConf.merge(default_dict, scene_dict)
-    scene_dict = cast(DictConfig, scene_dict)
 
     # NOTICE: temporary measure (while option is turned off)
     opt.apply_ml = False
