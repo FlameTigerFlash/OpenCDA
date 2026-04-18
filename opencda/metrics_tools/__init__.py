@@ -1,3 +1,15 @@
+"""
+Metrics tools public API.
+
+Provides:
+- BaseMetric base class
+- MetricCollector runtime collector
+- get_metric_class lookup function
+- create_metric factory function
+- list_metrics utility
+"""
+
+import importlib
 """Public exports for the shared metrics collection and reporting package."""
 
 from opencda.metrics_tools.base_metric import BaseMetric
