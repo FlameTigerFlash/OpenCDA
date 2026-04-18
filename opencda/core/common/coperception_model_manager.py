@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import numpy as np
 import logging
 from tqdm import tqdm
 from collections import OrderedDict
@@ -13,7 +14,10 @@ import opencood.hypes_yaml.yaml_utils as yaml_utils
 from opencood.tools import train_utils, inference_utils
 from opencood.data_utils.datasets import build_dataset
 from opencood.visualization import simple_vis, vis_utils
-from opencood.utils import eval_utils
+from opencood.utils import eval_utils, common_utils
+
+from opencda.metrics_tools.config import resolve_metric_collector_config
+from opencda.metrics_tools.metric_collector import MetricCollector
 
 logger = logging.getLogger("cavise.opencda.opencda.core.common.coperception_model_manager")
 
@@ -56,12 +60,48 @@ class CoperceptionModelManager:
             0.7: {"tp": [], "fp": [], "gt": 0, "score": []},
         }
 
+        default_metric_configs = {
+            "iou": {"warmup_steps": 1}
+        }
+
+        metric_configs = resolve_metric_collector_config(
+            module_config=None,
+            default_metric_configs=default_metric_configs,
+        )
+        self.metrics_collector = MetricCollector(
+            module="COP",
+            entity_id="Coperception Model Manager",
+            metric_configs=metric_configs,
+        )
+
     def update_dataset(self, data=None):
         logger.debug("Refreshing dataset indices")
         self.opencood_dataset.update_database(memory_data=data)
 
         if len(self.opencood_dataset) == 0:
             logger.warning("No samples found in dataset after update.")
+
+    @staticmethod
+    def compute_ious(det_boxes, det_score, gt_boxes) -> list:
+        best_ious = []
+
+        det_boxes = common_utils.torch_tensor_to_numpy(det_boxes)
+        det_score = common_utils.torch_tensor_to_numpy(det_score)
+
+        if det_boxes is None:
+            return []
+
+        score_order_descend = np.argsort(-det_score)
+        det_polygon_list = list(common_utils.convert_format(det_boxes))
+        gt_boxes = common_utils.torch_tensor_to_numpy(gt_boxes)
+        gt_polygon_list = list(common_utils.convert_format(gt_boxes))
+
+        for i in range(score_order_descend.shape[0]):
+            det_polygon = det_polygon_list[score_order_descend[i]]
+            ious = common_utils.compute_iou(det_polygon, gt_polygon_list)
+            best_ious.append(np.max(ious))
+
+        return best_ious
 
     def make_prediction(self, tick_number):
         assert self.opt.fusion_method in ["late", "early", "intermediate"]
@@ -109,6 +149,10 @@ class CoperceptionModelManager:
                 eval_utils.caluclate_tp_fp(pred_box_tensor, pred_score, gt_box_tensor, result_stat, 0.3)
                 eval_utils.caluclate_tp_fp(pred_box_tensor, pred_score, gt_box_tensor, result_stat, 0.5)
                 eval_utils.caluclate_tp_fp(pred_box_tensor, pred_score, gt_box_tensor, result_stat, 0.7)
+
+                ious = self.compute_ious(pred_box_tensor, pred_score, gt_box_tensor)
+
+                self.metrics_collector.update({"iou": ious})
 
                 if self.opt.save_npy:
                     npy_dir = f"simulation_output/coperception/npy/{self.opt.test_scenario}_{self.current_time}"
